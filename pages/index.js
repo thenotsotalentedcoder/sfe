@@ -1,411 +1,257 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
-import axios from 'axios';
-import { ClipLoader } from 'react-spinners';
+import Link from 'next/link';
 
-export default function Home() {
+export default function LandingPage() {
   const router = useRouter();
-  const [userName, setUserName] = useState('');
-  const [input, setInput] = useState('');
-  const [messages, setMessages] = useState([]);
-  const [isListening, setIsListening] = useState(false);
-  const [myLanguage, setMyLanguage] = useState('en');
-  const [expandedMessage, setExpandedMessage] = useState(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const recognitionRef = useRef(null);
-  const chatEndRef = useRef(null);
-
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-
-  const languages = [
-    { name: 'English', code: 'en' },
-    { name: 'Spanish', code: 'es' },
-    { name: 'French', code: 'fr' },
-    { name: 'Arabic', code: 'ar' },
-    { name: 'Urdu', code: 'ur' },
-    { name: 'Chinese', code: 'zh' },
-    { name: 'Hindi', code: 'hi' },
-    { name: 'Portuguese', code: 'pt' },
-  ];
+  const [user, setUser] = useState(null);
 
   useEffect(() => {
-    const user = JSON.parse(localStorage.getItem('user'));
-    if (!user) {
-      router.push('/auth');
-      return;
+    const userData = localStorage.getItem('user');
+    if (userData) {
+      setUser(JSON.parse(userData));
     }
-    setUserName(user.username);
+  }, []);
 
-    setMessages([
-      {
-        id: 1,
-        text: 'Welcome to Healthcare Chat! How can I assist you today?',
-        isSystem: true,
-        time: new Date().toLocaleTimeString(),
-        translations: {},
-        lang: 'en',
-      },
-    ]);
-
-    if (typeof window !== 'undefined' && window.webkitSpeechRecognition) {
-      recognitionRef.current = new window.webkitSpeechRecognition();
-      recognitionRef.current.continuous = true;
-      recognitionRef.current.interimResults = true;
-      recognitionRef.current.lang = myLanguage;
-
-      recognitionRef.current.onresult = (e) => {
-        const transcript = Array.from(e.results)
-          .map(result => result[0].transcript)
-          .join('');
-        setInput(transcript);
-        if (e.results[0].isFinal) {
-          sendMessage(true);
-        }
-      };
-
-      recognitionRef.current.onerror = () => {
-        setIsListening(false);
-        setMessages(prev => [
-          ...prev,
-          {
-            id: Date.now(),
-            text: 'Speech recognition error. Please try again.',
-            isSystem: true,
-            time: new Date().toLocaleTimeString(),
-            translations: {},
-            lang: 'en',
-          },
-        ]);
-      };
-    }
-
-    return () => recognitionRef.current?.stop();
-  }, [router, myLanguage]);
-
-  useEffect(() => {
-    setTimeout(() => {
-      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, 100);
-  }, [messages]);
-
-  const startVoiceNote = () => {
-    if (recognitionRef.current) {
-      recognitionRef.current.lang = myLanguage;
-      recognitionRef.current.start();
-      setIsListening(true);
+  const handleGetStarted = () => {
+    if (user) {
+      router.push('/dashboard');
     } else {
-      setMessages(prev => [
-        ...prev,
-        {
-          id: Date.now(),
-          text: 'Speech recognition not supported in this browser.',
-          isSystem: true,
-          time: new Date().toLocaleTimeString(),
-          translations: {},
-          lang: 'en',
-        },
-      ]);
+      router.push('/auth');
     }
-  };
-
-  const stopListening = () => {
-    recognitionRef.current?.stop();
-    setIsListening(false);
-  };
-
-  const sendMessage = async (isVoiceNote = false) => {
-    if (!input.trim()) return;
-
-    const newMessage = {
-      id: Date.now(),
-      text: input,
-      isMe: true,
-      isVoiceNote,
-      time: new Date().toLocaleTimeString(),
-      translations: {},
-      lang: myLanguage,
-      sender: userName,
-    };
-    setMessages(prev => [...prev, newMessage]);
-    setInput('');
-    setIsListening(false);
-
-    try {
-      setIsLoading(true);
-      const response = await axios.post(`${API_URL}/provider-response`, {
-        text: input,
-        lang: myLanguage,
-      });
-      const providerMessage = {
-        id: Date.now() + 1,
-        text: response.data.response,
-        isMe: false,
-        time: new Date().toLocaleTimeString(),
-        translations: {},
-        lang: myLanguage,
-        sender: 'Provider',
-      };
-      setMessages(prev => [...prev, providerMessage]);
-    } catch (error) {
-      setMessages(prev => [
-        ...prev,
-        {
-          id: Date.now(),
-          text: 'Error: Could not get provider response.',
-          isSystem: true,
-          time: new Date().toLocaleTimeString(),
-          translations: {},
-          lang: 'en',
-        },
-      ]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleKeyPress = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
-  };
-
-  const toggleMessageOptions = (id) => {
-    setExpandedMessage(expandedMessage === id ? null : id);
-  };
-
-  const handleTranslate = async (messageId, targetLang) => {
-    const message = messages.find(msg => msg.id === messageId);
-    if (!message || message.translations[targetLang] || message.lang === targetLang) return;
-
-    try {
-      setIsLoading(true);
-      const response = await axios.post(`${API_URL}/translate`, {
-        text: message.text,
-        source_lang: message.lang, // Changed from source to source_lang
-        target_lang: targetLang,  // Changed from target to target_lang
-      }, {
-        headers: { Authorization: `Bearer mock-token` },
-      });
-      const translated = response.data.translated_text;
-      if (translated && translated !== 'Translation failed') {
-        setMessages(prev =>
-          prev.map(msg =>
-            msg.id === messageId
-              ? { ...msg, translations: { ...msg.translations, [targetLang]: translated } }
-              : msg
-          )
-        );
-      } else {
-        throw new Error('Translation failed');
-      }
-    } catch (error) {
-      console.error('Translation error:', error.response?.data || error.message); // Debug log
-      setMessages(prev => [
-        ...prev,
-        {
-          id: Date.now(),
-          text: 'Translation failed.',
-          isSystem: true,
-          time: new Date().toLocaleTimeString(),
-          translations: {},
-          lang: 'en',
-        },
-      ]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const speakText = async (text, lang) => {
-    try {
-      setIsLoading(true);
-      const response = await axios.post(`${API_URL}/speak`, { text, lang }, {
-        headers: { Authorization: `Bearer mock-token` },
-        responseType: 'blob',
-      });
-      const audioUrl = URL.createObjectURL(response.data);
-      const audio = new Audio(audioUrl);
-      audio.play();
-      audio.onended = () => URL.revokeObjectURL(audioUrl);
-    } catch (error) {
-      setMessages(prev => [
-        ...prev,
-        {
-          id: Date.now(),
-          text: 'Error: Text-to-speech failed.',
-          isSystem: true,
-          time: new Date().toLocaleTimeString(),
-          translations: {},
-          lang: 'en',
-        },
-      ]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem('user');
-    router.push('/auth');
   };
 
   return (
-    <div className="flex flex-col min-h-screen max-w-2xl mx-auto bg-gray-100 font-sans">
-      <header className="bg-primary text-white p-4 flex justify-between items-center">
-        <div>
-          <h2 className="text-xl font-bold">🩺 Healthcare Chat</h2>
-          <p className="text-sm opacity-80">Online</p>
-        </div>
-        <div className="flex items-center gap-4">
-          <span className="text-sm font-bold">{userName}</span>
-          <select
-            value={myLanguage}
-            onChange={(e) => setMyLanguage(e.target.value)}
-            className="p-2 rounded-md bg-white/90 text-primary text-sm"
-            aria-label="Select language"
-          >
-            {languages.map(lang => (
-              <option key={lang.code} value={lang.code}>{lang.name}</option>
-            ))}
-          </select>
-          <button
-            onClick={handleLogout}
-            className="p-2 rounded-md bg-red-500 hover:bg-red-600 text-white text-sm"
-            aria-label="Log out"
-          >
-            Logout
-          </button>
-        </div>
-      </header>
-
-      <div className="flex-1 p-4 overflow-y-auto bg-chatBg space-y-2">
-        {messages.map((msg) => (
-          <div key={msg.id} className="flex flex-col animate-slide-in">
-            <div
-              className={`max-w-[75%] p-4 rounded-lg shadow-md border ${
-                msg.isSystem
-                  ? 'bg-yellow-100 border-yellow-200 mx-auto'
-                  : msg.isMe
-                  ? 'self-end bg-blue-100 border-blue-300'
-                  : 'self-start bg-white border-gray-200'
-              } ${msg.isMe ? 'rounded-br-md' : 'rounded-bl-md'}`}
-            >
-              {!msg.isSystem && (
-                <div className="text-sm font-semibold text-primary mb-1">{msg.sender}</div>
-              )}
-              <div className="text-base whitespace-pre-wrap">
-                {msg.isVoiceNote && <span className="text-primary">🎤 </span>}
-                <div className="flex flex-col gap-1">
-                  {msg.translations[myLanguage] && msg.lang !== myLanguage ? (
-                    <span>{msg.translations[myLanguage]} ({myLanguage})</span>
-                  ) : (
-                    <span>{msg.text} ({msg.lang})</span>
-                  )}
-                </div>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-teal-50">
+      {/* Navigation */}
+      <nav className="bg-white shadow-lg">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between h-16">
+            <div className="flex items-center">
+              <div className="flex-shrink-0 flex items-center">
+                <span className="text-2xl font-bold text-primary">🩺 HealthTranslate</span>
               </div>
-              <div className="flex justify-between items-center mt-1">
-                <span className="text-xs text-gray-500">{msg.time}</span>
-                {!msg.isSystem && (
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => speakText(msg.translations[myLanguage] || msg.text, myLanguage)}
-                      className="p-1 rounded-md hover:bg-gray-200"
-                      aria-label="Read message aloud"
-                    >
-                      🔊
-                    </button>
-                    <button
-                      onClick={() => toggleMessageOptions(msg.id)}
-                      className="p-1 rounded-md hover:bg-gray-200"
-                      aria-label="Translate message"
-                    >
-                      🌐
-                    </button>
-                  </div>
-                )}
-              </div>
-              {expandedMessage === msg.id && (
-                <div className="mt-2 p-3 bg-white/90 rounded-md border border-gray-200">
-                  <p className="text-sm font-semibold text-gray-600 mb-2">Translate to:</p>
-                  <div className="flex flex-wrap gap-2 mb-4">
-                    {languages
-                      .filter(lang => lang.code !== msg.lang)
-                      .map(lang => (
-                        <button
-                          key={lang.code}
-                          onClick={() => handleTranslate(msg.id, lang.code)}
-                          className="px-2 py-1 border border-gray-200 rounded-full bg-white hover:bg-blue-50 hover:border-blue-400 text-sm"
-                        >
-                          {lang.name}
-                        </button>
-                      ))}
-                  </div>
-                  {Object.entries(msg.translations).map(([langCode, translation]) => (
-                    <div key={langCode} className="mt-2 p-2 bg-gray-50 rounded-md">
-                      <div className="flex justify-between items-center mb-1">
-                        <strong className="text-sm">{languages.find(l => l.code === langCode)?.name}:</strong>
-                        <button
-                          onClick={() => speakText(translation, langCode)}
-                          className="p-1 rounded-md hover:bg-gray-200"
-                          aria-label={`Read ${langCode} translation aloud`}
-                        >
-                          🔊
-                        </button>
-                      </div>
-                      <div className="text-sm text-gray-600">{translation}</div>
-                    </div>
-                  ))}
-                </div>
+            </div>
+            <div className="flex items-center space-x-4">
+              {user ? (
+                <>
+                  <span className="text-gray-700">Welcome, {user.username}</span>
+                  <button
+                    onClick={() => router.push('/dashboard')}
+                    className="bg-primary text-white px-4 py-2 rounded-lg hover:bg-teal-700 transition-colors"
+                  >
+                    Dashboard
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => router.push('/auth')}
+                  className="bg-primary text-white px-4 py-2 rounded-lg hover:bg-teal-700 transition-colors"
+                >
+                  Sign In
+                </button>
               )}
             </div>
           </div>
-        ))}
-        {isLoading && <ClipLoader color="#0d9488" size={24} className="mt-2 mx-auto" />}
-        <div ref={chatEndRef} />
-      </div>
+        </div>
+      </nav>
 
-      <div className="p-4 bg-white border-t border-gray-200">
-        <div className="flex gap-2 items-end">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyPress={handleKeyPress}
-            placeholder="Type your message..."
-            className="flex-1 p-2 border border-gray-200 rounded-full bg-white text-base resize-none min-h-[40px] max-h-[100px] focus:outline-none focus:ring-2 focus:ring-primary"
-            rows={1}
-            aria-label="Type your message"
-          />
-          <div className="flex gap-2">
-            <button
-              onClick={isListening ? stopListening : startVoiceNote}
-              className={`w-12 h-12 rounded-full text-white flex items-center justify-center transition-transform ${
-                isListening ? 'bg-red-500' : 'bg-primary'
-              } hover:scale-105`}
-              aria-label={isListening ? 'Stop recording' : 'Start voice recording'}
-            >
-              {isListening ? '⏹️' : '🎤'}
-            </button>
-            <button
-              onClick={sendMessage}
-              className="w-12 h-12 rounded-full bg-primary text-white flex items-center justify-center hover:scale-105 disabled:bg-gray-300 disabled:cursor-not-allowed"
-              disabled={!input.trim()}
-              aria-label="Send message"
-            >
-              ➤
-            </button>
+      {/* Hero Section */}
+      <section className="relative py-20 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto text-center">
+          <h1 className="text-4xl sm:text-6xl font-bold text-gray-900 mb-6">
+            Break Language Barriers in
+            <span className="text-primary block">Healthcare Communication</span>
+          </h1>
+          <p className="text-xl text-gray-600 mb-8 max-w-3xl mx-auto">
+            Real-time voice translation between patients and healthcare providers. 
+            Speak naturally, translate instantly, and provide better care regardless of language.
+          </p>
+          <button
+            onClick={handleGetStarted}
+            className="bg-primary text-white px-8 py-4 rounded-lg text-xl font-semibold hover:bg-teal-700 transform hover:scale-105 transition-all shadow-lg"
+          >
+            Get Started Free
+          </button>
+        </div>
+      </section>
+
+      {/* Features Section */}
+      <section className="py-20 bg-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl font-bold text-gray-900 mb-4">
+              Powerful Features for Healthcare Communication
+            </h2>
+            <p className="text-lg text-gray-600">
+              Everything you need for seamless multilingual healthcare interactions
+            </p>
+          </div>
+          
+          <div className="grid md:grid-cols-3 gap-8">
+            <div className="text-center p-6 rounded-lg border border-gray-200 hover:shadow-lg transition-shadow">
+              <div className="text-4xl mb-4">🎤</div>
+              <h3 className="text-xl font-semibold mb-3">Voice-to-Text</h3>
+              <p className="text-gray-600">
+                Advanced speech recognition optimized for medical terminology across multiple languages
+              </p>
+            </div>
+            
+            <div className="text-center p-6 rounded-lg border border-gray-200 hover:shadow-lg transition-shadow">
+              <div className="text-4xl mb-4">🌐</div>
+              <h3 className="text-xl font-semibold mb-3">Real-time Translation</h3>
+              <p className="text-gray-600">
+                Instant translation between 8+ languages with healthcare-specific accuracy
+              </p>
+            </div>
+            
+            <div className="text-center p-6 rounded-lg border border-gray-200 hover:shadow-lg transition-shadow">
+              <div className="text-4xl mb-4">🔊</div>
+              <h3 className="text-xl font-semibold mb-3">Audio Playback</h3>
+              <p className="text-gray-600">
+                Natural-sounding voice synthesis with language-appropriate pronunciation
+              </p>
+            </div>
           </div>
         </div>
-        {isListening && (
-          <div className="flex items-center gap-2 mt-2 text-primary text-sm">
-            <span className="animate-pulse">🎤</span>
-            <span>Listening... (Speak now)</span>
+      </section>
+
+      {/* How It Works */}
+      <section className="py-20 bg-gray-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl font-bold text-gray-900 mb-4">
+              How It Works
+            </h2>
+            <p className="text-lg text-gray-600">
+              Simple 3-step process for effective communication
+            </p>
           </div>
-        )}
-        <div className="text-xs text-gray-600 text-center mt-2 italic">
-          💡 Click 🎤 to speak, then click ➤ to send
+          
+          <div className="grid md:grid-cols-3 gap-8">
+            <div className="text-center">
+              <div className="bg-primary text-white w-12 h-12 rounded-full flex items-center justify-center text-xl font-bold mx-auto mb-4">
+                1
+              </div>
+              <h3 className="text-xl font-semibold mb-3">Speak</h3>
+              <p className="text-gray-600">
+                Click the microphone and speak naturally in your preferred language
+              </p>
+            </div>
+            
+            <div className="text-center">
+              <div className="bg-primary text-white w-12 h-12 rounded-full flex items-center justify-center text-xl font-bold mx-auto mb-4">
+                2
+              </div>
+              <h3 className="text-xl font-semibold mb-3">Translate</h3>
+              <p className="text-gray-600">
+                AI instantly translates your message with medical context awareness
+              </p>
+            </div>
+            
+            <div className="text-center">
+              <div className="bg-primary text-white w-12 h-12 rounded-full flex items-center justify-center text-xl font-bold mx-auto mb-4">
+                3
+              </div>
+              <h3 className="text-xl font-semibold mb-3">Communicate</h3>
+              <p className="text-gray-600">
+                Listen to the translated message or read the text transcript
+              </p>
+            </div>
+          </div>
         </div>
-      </div>
+      </section>
+
+      {/* Trust Section */}
+      <section className="py-20 bg-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+          <h2 className="text-3xl font-bold text-gray-900 mb-8">
+            Trusted by Healthcare Professionals
+          </h2>
+          <div className="grid md:grid-cols-3 gap-8">
+            <div className="p-6">
+              <div className="text-2xl mb-2">🔒</div>
+              <h3 className="font-semibold mb-2">HIPAA Compliant</h3>
+              <p className="text-gray-600">
+                End-to-end encryption ensures patient privacy and data security
+              </p>
+            </div>
+            <div className="p-6">
+              <div className="text-2xl mb-2">⚡</div>
+              <h3 className="font-semibold mb-2">Fast & Accurate</h3>
+              <p className="text-gray-600">
+                Sub-second translation with 95%+ accuracy for medical terminology
+              </p>
+            </div>
+            <div className="p-6">
+              <div className="text-2xl mb-2">📱</div>
+              <h3 className="font-semibold mb-2">Mobile Optimized</h3>
+              <p className="text-gray-600">
+                Works seamlessly on any device, from tablets to smartphones
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* CTA Section */}
+      <section className="py-20 bg-primary text-white">
+        <div className="max-w-4xl mx-auto text-center px-4 sm:px-6 lg:px-8">
+          <h2 className="text-3xl font-bold mb-4">
+            Ready to Transform Healthcare Communication?
+          </h2>
+          <p className="text-xl mb-8 text-teal-100">
+            Join thousands of healthcare providers using HealthTranslate to provide better patient care
+          </p>
+          <button
+            onClick={handleGetStarted}
+            className="bg-white text-primary px-8 py-4 rounded-lg text-xl font-semibold hover:bg-gray-100 transform hover:scale-105 transition-all shadow-lg"
+          >
+            Start Translating Now
+          </button>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="bg-gray-900 text-white py-12">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid md:grid-cols-4 gap-8">
+            <div>
+              <h3 className="text-lg font-semibold mb-4">🩺 HealthTranslate</h3>
+              <p className="text-gray-400">
+                Breaking language barriers in healthcare, one conversation at a time.
+              </p>
+            </div>
+            <div>
+              <h4 className="font-semibold mb-4">Product</h4>
+              <ul className="space-y-2 text-gray-400">
+                <li>Features</li>
+                <li>Pricing</li>
+                <li>Security</li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="font-semibold mb-4">Support</h4>
+              <ul className="space-y-2 text-gray-400">
+                <li>Documentation</li>
+                <li>Contact</li>
+                <li>FAQ</li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="font-semibold mb-4">Legal</h4>
+              <ul className="space-y-2 text-gray-400">
+                <li>Privacy Policy</li>
+                <li>Terms of Service</li>
+                <li>HIPAA Compliance</li>
+              </ul>
+            </div>
+          </div>
+          <div className="border-t border-gray-800 mt-8 pt-8 text-center text-gray-400">
+            <p>&copy; 2024 HealthTranslate. All rights reserved.</p>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
